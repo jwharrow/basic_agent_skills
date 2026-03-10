@@ -157,6 +157,55 @@ Report the PR URL to the user.
 
 ---
 
+## Step 8: Advance the ticket status
+
+After the draft PR is created, move the Jira ticket to the appropriate in-progress state.
+
+### Detect available tooling (in order of preference)
+
+**1. Atlassian MCP** (preferred — already used in Step 1):
+```
+# Get available transitions
+getTransitionsForJiraIssue(cloudId, issueIdOrKey: "PROJ-1234")
+
+# Apply the transition
+transitionJiraIssue(cloudId, issueIdOrKey: "PROJ-1234", transition: { id: "<transition_id>" })
+```
+
+**2. `acli` (Atlassian CLI)**:
+```bash
+which acli && acli jira issue transition "PROJ-1234" --transition "In Progress"
+```
+
+**3. `jira` CLI**:
+```bash
+which jira && jira issue move "PROJ-1234" "In Progress"
+```
+
+**4. `curl` against the Jira REST API** (fallback if no tooling is available):
+```bash
+# Get transitions
+curl -s -u "$JIRA_USER:$JIRA_TOKEN" \
+  "https://yourorg.atlassian.net/rest/api/3/issue/PROJ-1234/transitions" | jq '.transitions[] | {id, name}'
+
+# Apply transition
+curl -s -X POST \
+  -u "$JIRA_USER:$JIRA_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"transition": {"id": "<transition_id>"}}' \
+  "https://yourorg.atlassian.net/rest/api/3/issue/PROJ-1234/transitions"
+```
+
+### Choosing the right transition
+
+Fetch the available transitions first and pick the one that best matches "In Progress" (common names: `In Progress`, `In Development`, `Start Progress`, `Start`). Do not guess a transition ID.
+
+If none of the tooling is available and `JIRA_USER`/`JIRA_TOKEN` env vars are not set, skip this step and tell the user: "Could not advance ticket status — no Jira tooling available. You can move it manually."
+
+If the transition succeeds, confirm: "Moved PROJ-1234 → In Progress."
+
+---
+
 ## Notes
 
 - Never merge — always leave the PR as a draft for human review
