@@ -1,0 +1,15 @@
+{
+  "name": "basic-agent-skills",
+  "description": "PR workflow skills: implement from Jira, resolve review comments, and review PRs.",
+  "owner": {
+    "name": "jwharrow"
+  },
+  "plugins": [
+    {
+      "name": "pr-skills",
+      "description": "jira-to-pr, resolve-pr-comments, and review-pr workflow skills",
+      "source": "./plugins/pr-skills",
+      "category": "workflow"
+    }
+  ]
+}

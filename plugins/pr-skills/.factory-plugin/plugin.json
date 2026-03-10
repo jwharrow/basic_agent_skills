@@ -1,0 +1,9 @@
+{
+  "name": "pr-skills",
+  "description": "Workflow skills for PR lifecycle: implement a Jira ticket end-to-end, resolve review comments conversationally, and review a PR as a structured reviewer.",
+  "version": "1.0.0",
+  "author": {
+    "name": "jwharrow"
+  },
+  "repository": "https://github.com/jwharrow/basic_agent_skills"
+}
