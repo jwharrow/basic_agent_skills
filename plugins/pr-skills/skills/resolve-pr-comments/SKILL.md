@@ -12,68 +12,138 @@ disable-model-invocation: true
 
 ## Input
 
-The user provides a GitHub PR URL (e.g. `https://github.com/org/repo/pull/123`).
+The user provides a GitHub PR URL as an argument or in conversation (e.g. `/resolve-pr-comments https://github.com/org/repo/pull/123`).
 
-If no URL is provided, ask: "What's the PR URL?"
+If `$ARGUMENTS` is provided, treat it as the PR URL.
+
+If nothing is provided, ask: "What's the PR URL?"
 
 Parse `{owner}`, `{repo}`, and `{pr_number}` from the URL.
 
 ---
 
-## Step 1: Fetch all comments
+## Prerequisites
+
+Before starting, verify:
+- `gh auth status` — must be authenticated to GitHub
+- Must be run from inside a git repository
+
+If `gh` is not authenticated, stop and tell the user: "Run `gh auth login` first."
+
+---
+
+## Step 1: Detect the default branch
 
 ```bash
-# Inline review thread comments
-gh api repos/{owner}/{repo}/pulls/{pr_number}/comments \
-  --paginate \
-  --jq '.[] | {id, path, line, body, user: .user.login, created_at, in_reply_to_id}'
-
-# Review summaries
-gh api repos/{owner}/{repo}/pulls/{pr_number}/reviews \
-  --paginate \
-  --jq '.[] | {id, state, body, user: .user.login, submitted_at}'
-
-# Conversation tab comments
-gh api repos/{owner}/{repo}/issues/{pr_number}/comments \
-  --paginate \
-  --jq '.[] | {id, body, user: .user.login, created_at}'
-
-# PR metadata and current diff
-gh pr view {pr_number} --json title,body,headRefName,baseRefName,files
-gh pr diff {pr_number}
+DEFAULT_BRANCH=$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name')
 ```
 
 ---
 
-## Step 2: Triage — addressed vs unaddressed
+## Step 2: Check out the PR branch
 
-For each comment thread, determine its status.
+Before fetching comments or making any changes, switch to the PR's head branch:
+
+```bash
+gh pr checkout {pr_number}
+```
+
+This ensures all subsequent code changes land on the correct branch. Confirm which branch you're now on:
+
+```bash
+git rev-parse --abbrev-ref HEAD
+```
+
+---
+
+## Step 3: Fetch all comments
+
+```bash
+# Inline review thread comments (attached to specific lines of code)
+gh api repos/{owner}/{repo}/pulls/{pr_number}/comments \
+  --paginate \
+  --jq '.[] | {id, path, line, body, user: .user.login, created_at, in_reply_to_id}'
+
+# Review summaries (top-level review bodies, not inline)
+gh api repos/{owner}/{repo}/pulls/{pr_number}/reviews \
+  --paginate \
+  --jq '.[] | {id, state, body, user: .user.login, submitted_at}'
+
+# Conversation tab comments (general issue comments, not review comments)
+gh api repos/{owner}/{repo}/issues/{pr_number}/comments \
+  --paginate \
+  --jq '.[] | {id, body, user: .user.login, created_at}'
+
+# PR metadata
+gh pr view {pr_number} --json title,body,headRefName,baseRefName,files
+
+# Current diff
+gh pr diff {pr_number}
+```
+
+Note the type of each comment — this matters for how you reply (Step 6):
+- **Review comment** (`pulls/{pr_number}/comments`) — attached to a specific file/line
+- **Review body** (`pulls/{pr_number}/reviews`) — top-level review summary
+- **Issue comment** (`issues/{pr_number}/comments`) — general conversation comment
+
+---
+
+## Step 4: Triage — addressed vs unaddressed
+
+For each review thread, use the GitHub GraphQL API to check resolution status:
+
+```bash
+gh api graphql -f query='
+{
+  repository(owner: "{owner}", name: "{repo}") {
+    pullRequest(number: {pr_number}) {
+      reviewThreads(first: 100) {
+        nodes {
+          id
+          isResolved
+          isOutdated
+          comments(first: 5) {
+            nodes {
+              id
+              body
+              author { login }
+              path
+              line
+            }
+          }
+        }
+      }
+    }
+  }
+}'
+```
 
 **Addressed** if any of:
-- The thread is marked as resolved on GitHub
-- The comment has a reply that acknowledges/closes it
-- The diff shows the referenced code has since been changed in a way that responds to the concern
+- `isResolved: true` on the thread
+- `isOutdated: true` (the code at that location changed enough to make the comment stale)
+- The thread has a reply from the PR author that acknowledges and closes it
 
 **Unaddressed** if:
-- No reply or follow-up from the PR author
-- The code at the referenced location is unchanged
-- The reviewer re-raised the concern
+- `isResolved: false` and the code at the referenced location is unchanged
+- The reviewer explicitly re-raised the concern
+
+For issue/conversation comments (not part of a review thread), check whether the PR author has replied.
 
 Present a summary:
 ```
 Found N comments:
-  - X addressed / resolved
+  - X resolved / outdated
   - Y unaddressed (listed below)
 ```
 
 ---
 
-## Step 3: Propose a response for each unaddressed comment
+## Step 5: Propose a response for each unaddressed comment
 
 For each unaddressed comment, classify and propose:
 
 ```
-[N] @reviewer — file.ts:42
+[N] @reviewer — file.ts:42  (review comment)
 Comment: "This should handle the null case before calling .map()"
 
 Proposed action: Code change
@@ -92,7 +162,7 @@ Ask the user at the start: "Should I go through these one at a time, or show you
 
 ---
 
-## Step 4: Conversation
+## Step 6: Conversation
 
 For each proposed action, the user can:
 - **Approve** ("yes", "looks good", "do it")
@@ -115,7 +185,7 @@ Proceed?
 
 ---
 
-## Step 5: Execute
+## Step 7: Execute
 
 ### Make code changes
 
@@ -123,54 +193,75 @@ Apply each approved code change. Match surrounding code conventions.
 
 ### Post replies
 
+Use the correct endpoint based on comment type:
+
+**Review comment** (inline, attached to a file/line):
 ```bash
-# Reply to an inline review comment
 gh api repos/{owner}/{repo}/pulls/comments/{comment_id}/replies \
   -X POST \
   -f body="Your reply text"
+```
 
-# Reply as an issue comment (for conversation-tab comments)
+**Review body** (top-level review summary) — reply as an issue comment:
+```bash
 gh api repos/{owner}/{repo}/issues/{pr_number}/comments \
   -X POST \
   -f body="Your reply text"
 ```
 
-### Merge latest from base branch
+**Issue/conversation comment** — reply as an issue comment:
+```bash
+gh api repos/{owner}/{repo}/issues/{pr_number}/comments \
+  -X POST \
+  -f body="Your reply text"
+```
+
+### Merge latest from default branch
 
 ```bash
-git fetch origin {base_branch}
-git merge origin/{base_branch}
+git fetch origin "$DEFAULT_BRANCH"
+git merge "origin/$DEFAULT_BRANCH"
 ```
 
 If there are merge conflicts, resolve them and commit. Tell the user what was conflicted.
 
 ### Run all checks
 
-Discover and run the full check suite (look in `AGENTS.md`, `package.json`, `Makefile`, etc.). Fix any failures.
+Discover and run the full check suite (look in `AGENTS.md`, `package.json`, `Makefile`, etc.). Fix any failures before pushing.
 
-### Push
+### Push safely
 
-Check for merged/closed PRs on this branch before pushing:
+Before pushing, verify no merged/closed PR exists on this branch:
+
 ```bash
-gh pr list --head {branch} --state merged --json number,title
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+gh pr list --head "$BRANCH" --state merged --json number,title
+gh pr list --head "$BRANCH" --state closed --json number,title
 ```
 
-Then push:
+If a merged/closed PR exists, create a new branch and push from there.
+
+Push:
 ```bash
-git push origin {branch}
+git push origin "$BRANCH"
 ```
 
-Check PR state after pushing.
+After pushing, re-check PR state:
+```bash
+gh pr list --head "$BRANCH" --state merged --json number,title
+```
+
+Never use `git push --force`. Use `git push --force-with-lease` if a force push is needed after rebasing.
 
 ---
 
-## Step 6: Report
+## Step 8: Report
 
 ```
 Done.
   - Made N code changes
   - Posted N replies
-  - Merged latest from {base_branch} (no conflicts / N conflicts resolved)
+  - Merged latest from {DEFAULT_BRANCH} (no conflicts / N conflicts resolved)
   - All checks passed
   - Pushed to origin/{branch}
 
@@ -184,3 +275,4 @@ PR: {pr_url}
 - Never post a reply without user approval
 - Never push with failing checks
 - The proposals are starting points — the user's preference always wins
+- Never use `git push --force` — always use `git push --force-with-lease`
