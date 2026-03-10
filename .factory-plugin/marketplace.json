@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "pr-skills",
-      "description": "jira-to-pr, resolve-pr-comments, and review-pr workflow skills",
+      "description": "jira-to-pr, resolve-pr-comments, review-pr, and babysit-pr workflow skills",
       "source": "./plugins/pr-skills",
       "category": "workflow"
     }
