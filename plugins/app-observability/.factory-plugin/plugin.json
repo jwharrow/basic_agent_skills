@@ -1,0 +1,9 @@
+{
+  "name": "app-observability",
+  "description": "Production health check across Firebase Crashlytics and Datadog. One-time interactive setup per project; portable across any app with matching integrations.",
+  "version": "0.1.0",
+  "author": {
+    "name": "jwharrow"
+  },
+  "repository": "https://github.com/jwharrow/basic_agent_skills"
+}

@@ -1,6 +1,6 @@
 {
   "name": "basic-agent-skills",
-  "description": "PR workflow skills: implement from Jira, resolve review comments, and review PRs.",
+  "description": "PR workflow skills and app observability tooling.",
   "owner": {
     "name": "jwharrow"
   },
@@ -10,6 +10,12 @@
       "description": "jira-to-pr, resolve-pr-comments, review-pr, and babysit-pr workflow skills",
       "source": "./plugins/pr-skills",
       "category": "workflow"
+    },
+    {
+      "name": "app-observability",
+      "description": "Production health check across Firebase Crashlytics and Datadog with per-project config",
+      "source": "./plugins/app-observability",
+      "category": "observability"
     }
   ]
 }
